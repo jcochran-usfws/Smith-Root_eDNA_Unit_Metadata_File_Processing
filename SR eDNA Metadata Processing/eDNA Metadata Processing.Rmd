@@ -1,0 +1,104 @@
+---
+title: "eDNA Metadata Processing"
+output: html_notebook
+---
+
+```{r Package Install and Import, include=FALSE}
+
+## Install and load packages
+
+# Create vector of packages
+
+requiredPackages <- c("tidyverse", "lubridate", "readr", "readxl", "data.table")
+
+# Function to install and load any packages not installed
+
+ipak <- function(pkg){
+  new.pkg <- pkg[!(pkg %in% installed.packages()[, "Package"])]
+  if (length(new.pkg))
+  install.packages(new.pkg, dependencies = TRUE)
+  sapply(pkg, require, character.only = TRUE)
+}
+
+# Load packages
+
+ipak(requiredPackages)
+
+```
+
+```{r Metadata File Processing, echo = FALSE, message=FALSE, warning=FALSE}
+
+# Metadata Summary Statistics Processing
+
+### List the metadata files
+
+list <- list.files(path = paste0("./Raw Files"), pattern = "*.csv", recursive = TRUE, full.names = TRUE)
+print(list) #check list 
+
+### Function that grabs the summary statistics section form each file and manipulates them
+
+metadata_processing <- function(x) {
+  df <- read_csv(x, col_names = c("Column", "Value")) %>% 
+  slice(., 1:10) %>% 
+  spread(Column, Value) %>% 
+  mutate(Join_Tag = paste0(`Serial Number`, "_", `Sample ID`)) %>% 
+  mutate(`Duration (s)` = period_to_seconds(hms(Duration))) %>% 
+  select(Join_Tag, `Serial Number`, `Sample ID`, `Start Time`, Duration, `Duration (s)`, `Total Volume (l)`, `Distance (m)`, `Peak Pressure (psi)`, `Avg Flow (l/min)`, `Avg Rate (mL/m)`, `Avg Speed (m/s)`) 
+  
+  return(df)
+}
+
+### Run the function over the metadata file list
+
+data <- lapply(list, FUN = metadata_processing) %>% 
+  bind_rows(.)
+
+### Export .csv of the processed statistics
+
+write.csv(data, file = './Processing Output/eDNA_Summary_Statistics_Output.csv', row.names = FALSE)
+
+```
+
+```{r Geo-Data Processing Function, echo = FALSE, message=FALSE, warning=FALSE}
+
+### Process geo-tagged raw records
+
+geodata_processing <- function(x) {
+
+## Create Tags - SN, Sample ID, and Date
+  
+Get_Tag <- read_csv(file = x, col_names = c("Column", "Value")) %>% 
+  slice(., (1:3))
+  
+Serial_Number <- Get_Tag %>% 
+  filter(row_number() == 1) %>% 
+  pull(Value)
+
+Sample_ID <- Get_Tag %>% 
+  filter(row_number() == 2) %>% 
+  pull(Value)
+
+Date <- Get_Tag %>% 
+  filter(row_number() == 3) %>% 
+  mutate(Format_Date = as.character(as.Date(ymd_hms(Value)))) %>% 
+  pull(Format_Date)
+
+## Grab the raw data and add the tags
+
+table <- Get_Tag <- read_csv(file = x, skip = 12) %>% 
+  mutate(`Serial Number` = Serial_Number, `Sample ID` = Sample_ID, Date = Date, Tag = paste0(`Serial Number`, "_", `Sample ID`)) %>% 
+  relocate(Tag, `Serial Number`, `Sample ID`, Date)
+
+  return(table)
+}
+
+### Run the function over the metadata file list
+
+geo_data <- lapply(list, FUN = geodata_processing) %>% 
+  bind_rows(.)
+
+### Export .csv of the processed statistics
+
+write.csv(geo_data, file = './Processing Output/eDNA_GPS_Raw_Metadata_Output.csv', row.names = FALSE)
+
+```
